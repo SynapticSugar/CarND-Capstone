@@ -64,12 +64,13 @@ class TLDetector(object):
         self.waypoint_tree = None
         self.waypoints = None
         
-        self.ground_truth = True
+        self.ground_truth = False
 
 
         #Detector Stuff
         self.model_image_size = None
         self.sess = None
+        self.initialized = False
         model_path = os.path.expanduser('./weights/mobilenet_s2_best.FalseFalse.h5')
         anchors_path = os.path.expanduser('./model_data/lisa_anchors.txt')
         classes_path = os.path.expanduser('./model_data/lisa_classes.txt')
@@ -101,15 +102,16 @@ class TLDetector(object):
         self.sess = K.get_session()  # TODO: Remove dependence on Tensorflow session.
 
         # Generate output tensor targets for filtered bounding boxes.
-        yolo_outputs = decode_yolo_output(self.yolo_model.output, anchors, len(class_names))
+        self.yolo_outputs = decode_yolo_output(self.yolo_model.output, anchors, len(class_names))
 
         self.input_image_shape = K.placeholder(shape=(2, ))
         self.boxes, self.scores, self.classes = yolo_eval(
-            yolo_outputs,
+            self.yolo_outputs,
             self.input_image_shape,
             score_threshold=.6,
             iou_threshold=.6)
 
+        self.initialized = True
 
         rospy.spin()
 
@@ -211,25 +213,27 @@ class TLDetector(object):
         # warning=2   YELLOW=1
         # dontcare=3  UNKNOWN=4
 
-        # if self.sess:
-        #     cv_image = self.bridge.imgmsg_to_cv2(self.camera_image)
-        #     # resized_image = cv_image.resize(
-        #     #     tuple(reversed(self.model_image_size)))
-        #     height, width, channels = cv_image.shape
-        #     resized_image = cv2.resize(cv_image, tuple(reversed(self.model_image_size)))
-        #     image_data = np.array(resized_image, dtype='float32')
-        #     image_data /= 255.
-        #     image_data = np.expand_dims(image_data, 0)  # Add batch dimension.
-        #     start = time.time()
-        #     out_boxes, out_scores, out_classes = self.sess.run(
-        #         [self.boxes, self.scores, self.classes],
-        #         feed_dict={
-        #             self.yolo_model.input: image_data,
-        #             self.input_image_shape: [width, height],
-        #             K.learning_phase(): 0
-        #         })
-        #     last = (time.time() - start)
-        #     print('{}: Found {} boxes for {}'.format(last, len(out_boxes), idx))
+        if self.sess and self.initialized:
+            cv_image = self.bridge.imgmsg_to_cv2(self.camera_image)
+            # resized_image = cv_image.resize(
+            #     tuple(reversed(self.model_image_size)))
+            height, width, channels = cv_image.shape
+            resized_image = cv2.resize(cv_image, tuple(reversed(self.model_image_size)))
+            image_data = np.array(resized_image, dtype='float32')
+            image_data /= 255.
+            image_data = np.expand_dims(image_data, 0)  # Add batch dimension.
+
+            start = time.time()
+            out_boxes, out_scores, out_classes = self.sess.run(
+                [self.boxes, self.scores, self.classes],
+                feed_dict={
+                    self.yolo_model.input: image_data,
+                    self.input_image_shape: [width, height],
+                    K.learning_phase(): 0
+                })
+            last = (time.time() - start)
+
+            print('{}: Found {} boxes for {}'.format(last, len(out_boxes), idx))
 
         # TODO return the actual detected state
         return TrafficLight.UNKNOWN
